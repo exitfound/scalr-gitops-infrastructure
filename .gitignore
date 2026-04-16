@@ -1,0 +1,9 @@
+# Claude Code
+.claude/settings.local.json
+
+# Terraform
+**/.terraform/
+**/*.tfstate
+**/*.tfstate.backup
+**/tfplan
+**/.terraform.lock.hcl

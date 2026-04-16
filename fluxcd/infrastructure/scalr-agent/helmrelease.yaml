@@ -29,7 +29,8 @@ spec:
 
     serviceAccount:
       create: false
-      automountToken: false
+      name: scalr-agent
+      automountToken: true
 
     allowMetadataService: true  # обязательно для Workload Identity
 

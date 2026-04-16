@@ -10,7 +10,7 @@ variable "region" {
   default     = "europe-north2"
 }
 
-# Namespace и KSA для Scalr-агента (должны совпадать с fluxcd/apps/scalr-agent/)
+# Namespace и KSA для Scalr-агента (должны совпадать с fluxcd/infrastructure/scalr-agent/)
 variable "scalr_agent_namespace" {
   type    = string
   default = "scalr-agent"

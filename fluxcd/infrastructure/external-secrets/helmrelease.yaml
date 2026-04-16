@@ -1,0 +1,19 @@
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: external-secrets
+  namespace: external-secrets
+spec:
+  interval: 15m
+  chart:
+    spec:
+      chart: external-secrets
+      version: "2.3.0"
+      sourceRef:
+        kind: HelmRepository
+        name: external-secrets
+        namespace: external-secrets
+  values:
+    serviceAccount:
+      create: false       # используем свой SA с WI-аннотацией
+      name: external-secrets

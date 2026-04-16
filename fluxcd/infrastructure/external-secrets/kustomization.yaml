@@ -5,4 +5,3 @@ resources:
   - serviceaccount.yaml
   - helmrepository.yaml
   - helmrelease.yaml
-  - clustersecretstore.yaml

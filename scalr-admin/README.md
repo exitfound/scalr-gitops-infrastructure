@@ -20,7 +20,8 @@ Terraform configuration for bootstrapping Scalr-as-code on top of GCP. Manages G
 12. [Step 5 — Run terraform apply](#step-5--run-terraform-apply)
 13. [Step 6 — Get Agent Pool JWT and push to Secret Manager](#step-6--get-agent-pool-jwt-and-push-to-secret-manager)
 14. [Step 7 — Update FluxCD manifests with GSA emails](#step-7--update-fluxcd-manifests-with-gsa-emails)
-15. [Troubleshooting](#troubleshooting)
+15. [Adding a new workspace](#adding-a-new-workspace)
+16. [Troubleshooting](#troubleshooting)
 
 ---
 
@@ -28,19 +29,27 @@ Terraform configuration for bootstrapping Scalr-as-code on top of GCP. Manages G
 
 ```
 scalr-admin/
+├── modules/
+│   ├── scalr-agent-pool/     # scalr_agent_pool resource
+│   ├── scalr-environment/    # scalr_environment resource
+│   ├── scalr-vcs-provider/   # scalr_vcs_provider resource
+│   └── scalr-workspace/      # scalr_workspace + scalr_variable resources
 ├── versions.tf          # GCS backend, required_providers, provider configs
 ├── variables.tf         # All input variables with descriptions
 ├── terraform.tfvars     # Instance-specific values (not secrets)
 ├── data.tf              # Reads github-pat from GCP Secret Manager
 ├── gcp.tf               # GSA resources + Workload Identity bindings
-├── scalr.tf             # Scalr environment, agent pool, VCS provider
-├── workspaces.tf        # Scalr workspaces
+├── agent_pool.tf        # module.agent_pool call
+├── environment.tf       # module.env_dev call
+├── vcs.tf               # module.vcs_github call
+├── workspaces.tf        # module.ws_admin (and future workspace calls)
 └── outputs.tf           # GSA emails + Scalr resource IDs
 ```
 
 **Why this split:**
 - `versions.tf` — provider config belongs with backend config, they're both infrastructure plumbing
-- `gcp.tf` / `scalr.tf` — resources are split by provider, not by feature; makes it easy to see what lives where
+- `gcp.tf` — GCP resources stay flat (bootstrap, changes rarely); splitting by provider keeps the dependency flow obvious
+- `modules/` — one module per Scalr resource type; each new workspace is a single `module` block in `workspaces.tf` without touching shared files
 - `data.tf` — data sources read external state, separating them from resources makes the dependency flow obvious
 - `variables.tf` — no defaults for instance-specific values (`gcp_project_id`, `scalr_hostname`, `scalr_account_id`, `github_username`); Terraform will fail fast if `terraform.tfvars` is missing instead of silently using stale defaults
 
@@ -58,7 +67,7 @@ scalr_workspace manages scalr-admin/
 
 A workspace cannot manage the resources it itself depends on. Therefore `scalr-admin` is always run manually via `terraform apply` from a local machine. No automation, no VCS triggers.
 
-The admin workspace (`scalr_workspace.admin`) is created in Scalr with `execution_mode = "local"` so Scalr records it in the UI but never attempts to run it automatically.
+The admin workspace (`module.ws_admin`) is created in Scalr with `execution_mode = "local"` so Scalr records it in the UI but never attempts to run it automatically.
 
 ---
 
@@ -122,11 +131,33 @@ Note: the `github-pat` token _can_ be read from SM via `data.tf` because it is c
 
 ## Why state is in GCS
 
-Scalr workspaces on the free tier do not support custom state backends — state is stored in Scalr's own cloud storage. If `scalr-admin` used Scalr as a backend, any workspace that tries to plan against the same state would conflict with Scalr's own state management.
+`scalr-admin` uses GCS as its state backend for two reasons.
 
-More importantly, if Scalr state were used and the Scalr account became unavailable, there would be no way to recover the Terraform state for the resources that manage Scalr itself.
+First, bootstrap isolation: `scalr-admin` creates the Scalr resources (environment, workspace) that a Scalr remote backend would depend on. If state lived in Scalr and Scalr became unavailable, there would be no way to run `terraform apply` to fix the problem — the tool that manages Scalr would itself be broken.
+
+Second, recovery: if the Scalr account becomes unavailable for any reason, state in GCS remains fully accessible. You can always run `terraform apply` locally against GCS state to restore the Scalr configuration.
 
 GCS backend keeps state outside of Scalr, in a bucket you fully control. The state lock is managed by GCS object versioning (no separate lock table needed). The GCS bucket is created manually once before the first `terraform init`.
+
+### When the Scalr remote backend IS appropriate
+
+Scalr's UI will show an "Upload configuration" dialog for every workspace with a `remote` backend snippet:
+
+```hcl
+terraform {
+  backend "remote" {
+    hostname     = "youraccount.scalr.io"
+    organization = "env-xxxxxxxxxxxxxxxxx"
+    workspaces {
+      name = "workspace-name"
+    }
+  }
+}
+```
+
+This is the correct pattern for any workspace that manages regular infrastructure — app services, Kubernetes configs, cloud networking, etc. Scalr stores the state, runs plan/apply on VCS push, and shows run history in the UI. That is the intended Scalr workflow.
+
+The only configuration where this does not apply is `scalr-admin` itself, because it creates the Scalr resources (environment, workspace) that the remote backend would depend on. Using Scalr as the backend for the configuration that creates Scalr's own workspace is a self-referential loop with no valid bootstrap path.
 
 ---
 
@@ -203,7 +234,7 @@ backend "gcs" {
 }
 ```
 
-And update `state_bucket` in `terraform.tfvars` to match (used for IAM binding):
+If your bucket name differs from the default (`terraform_state_dev_beneflo`), also add it to `terraform.tfvars`:
 
 ```hcl
 state_bucket = "your-state-bucket-name"
@@ -292,7 +323,7 @@ You will see:
 ## Step 6 — Get Agent Pool JWT and push to Secret Manager
 
 ```
-Scalr UI → Account Settings → Agent Pools → scalr-gitops-agent → Tokens → Add Token
+Scalr UI → Account Settings → Agent Pools → scalr-gitops-infrastructure-agent → Tokens → Add Token
 ```
 
 Copy the `eyJ...` token, then push it:
@@ -324,6 +355,57 @@ annotations:
 ```
 
 Commit and push. FluxCD will reconcile automatically.
+
+---
+
+## Adding a new workspace
+
+Every new Terraform repository that should be managed by Scalr needs a workspace. Add it to `workspaces.tf` as a single module block:
+
+```hcl
+module "ws_gcp_infra" {
+  source            = "./modules/scalr-workspace"
+  name              = "gcp-infrastructure"
+  environment_id    = module.env_dev.environment_id
+  execution_mode    = "remote"
+  terraform_version = "1.5.7"
+  auto_apply        = false
+  agent_pool_id     = module.agent_pool.agent_pool_id
+  vcs_provider_id   = module.vcs_github.vcs_provider_id
+  vcs_repo_identifier = "your-github-username/your-repo"
+  vcs_branch        = "main"
+  working_directory = "terraform/"          # omit if repo root
+  trigger_prefixes  = ["terraform/"]        # omit if whole repo triggers runs
+}
+```
+
+For a CLI-driven workspace (no VCS, runs triggered manually or via API):
+
+```hcl
+module "ws_admin" {
+  source            = "./modules/scalr-workspace"
+  name              = "scalr-admin-workspace"
+  environment_id    = module.env_dev.environment_id
+  execution_mode    = "local"
+  terraform_version = "1.5.7"
+  auto_apply        = false
+}
+```
+
+After adding the block run `terraform apply` from CLI. The new workspace will appear in the Scalr UI under the `scalr-gcp-infrastructure-dev` environment.
+
+**Using GCS for workspace state:** if you want plan/apply to run on the Scalr agent but state to live in GCS instead of Scalr, add a GCS backend to the workspace's own `versions.tf`:
+
+```hcl
+terraform {
+  backend "gcs" {
+    bucket = "terraform_state_dev_beneflo"
+    prefix = "gcp-infrastructure"   # unique per workspace
+  }
+}
+```
+
+The agent authenticates to GCS via Workload Identity — no extra configuration needed in Scalr.
 
 ---
 

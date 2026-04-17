@@ -32,10 +32,11 @@ resource "google_service_account" "eso_gsa" {
   project      = var.gcp_project_id
 }
 
-resource "google_project_iam_member" "eso_secret_accessor" {
-  project = var.gcp_project_id
-  role    = "roles/secretmanager.secretAccessor"
-  member  = "serviceAccount:${google_service_account.eso_gsa.email}"
+resource "google_secret_manager_secret_iam_member" "eso_agent_pool_token" {
+  project   = var.gcp_project_id
+  secret_id = var.scalr_agent_pool_token_secret_name
+  role      = "roles/secretmanager.secretAccessor"
+  member    = "serviceAccount:${google_service_account.eso_gsa.email}"
 }
 
 resource "google_service_account_iam_binding" "eso_wi" {

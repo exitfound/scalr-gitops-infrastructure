@@ -9,16 +9,16 @@ output "eso_gsa_email" {
 }
 
 output "scalr_environment_id" {
-  description = "Scalr environment ID — use as environment_id in scalr_workspace resources"
-  value       = scalr_environment.this.id
+  description = "Scalr environment ID — use as environment_id in scalr-workspace module"
+  value       = module.env_dev.environment_id
 }
 
 output "scalr_agent_pool_id" {
-  description = "Scalr agent pool ID — use as agent_pool_id in scalr_workspace resources"
-  value       = scalr_agent_pool.this.id
+  description = "Scalr agent pool ID — use as agent_pool_id in scalr-workspace module"
+  value       = module.agent_pool.agent_pool_id
 }
 
 output "scalr_vcs_provider_id" {
-  description = "Scalr VCS provider ID — use as vcs_provider_id in scalr_workspace resources"
-  value       = scalr_vcs_provider.github.id
+  description = "Scalr VCS provider ID — use as vcs_provider_id in scalr-workspace module"
+  value       = module.vcs_github.vcs_provider_id
 }

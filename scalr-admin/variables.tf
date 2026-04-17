@@ -74,26 +74,6 @@ variable "eso_ksa" {
   default     = "external-secrets"
 }
 
-# === Scalr resources ===
-
-variable "environment_name" {
-  type        = string
-  description = "Name of the Scalr environment to create"
-  default     = "dev"
-}
-
-variable "agent_pool_name" {
-  type        = string
-  description = "Name of the Scalr agent pool to create"
-  default     = "scalr-gitops-agent"
-}
-
-variable "terraform_version" {
-  type        = string
-  description = "Terraform version pinned for the admin workspace"
-  default     = "1.5.7"
-}
-
 variable "state_bucket" {
   type        = string
   description = "GCS bucket name used for Terraform state (used for IAM binding)"

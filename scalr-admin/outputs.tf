@@ -1,10 +1,10 @@
 output "scalr_agent_gsa_email" {
-  description = "GSA email for Scalr Agent — paste into fluxcd/infrastructure/scalr-agent/serviceaccount.yaml"
+  description = "GSA email for Scalr Agent — consumed by flux-bootstrap via terraform_remote_state"
   value       = google_service_account.scalr_agent_gsa.email
 }
 
 output "eso_gsa_email" {
-  description = "GSA email for ESO — paste into fluxcd/infrastructure/external-secrets/serviceaccount.yaml"
+  description = "GSA email for ESO — consumed by flux-bootstrap via terraform_remote_state"
   value       = google_service_account.eso_gsa.email
 }
 

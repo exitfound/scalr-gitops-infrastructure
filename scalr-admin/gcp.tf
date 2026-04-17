@@ -14,12 +14,10 @@ resource "google_storage_bucket_iam_member" "scalr_agent_state_bucket" {
   member = "serviceAccount:${google_service_account.scalr_agent_gsa.email}"
 }
 
-resource "google_service_account_iam_binding" "scalr_agent_wi" {
+resource "google_service_account_iam_member" "scalr_agent_wi" {
   service_account_id = google_service_account.scalr_agent_gsa.name
   role               = "roles/iam.workloadIdentityUser"
-  members = [
-    "serviceAccount:${var.gcp_project_id}.svc.id.goog[${var.scalr_agent_namespace}/${var.scalr_agent_ksa}]",
-  ]
+  member             = "serviceAccount:${var.gcp_project_id}.svc.id.goog[${var.scalr_agent_namespace}/${var.scalr_agent_ksa}]"
 }
 
 # ===========================================================================
@@ -39,10 +37,8 @@ resource "google_secret_manager_secret_iam_member" "eso_agent_pool_token" {
   member    = "serviceAccount:${google_service_account.eso_gsa.email}"
 }
 
-resource "google_service_account_iam_binding" "eso_wi" {
+resource "google_service_account_iam_member" "eso_wi" {
   service_account_id = google_service_account.eso_gsa.name
   role               = "roles/iam.workloadIdentityUser"
-  members = [
-    "serviceAccount:${var.gcp_project_id}.svc.id.goog[${var.eso_namespace}/${var.eso_ksa}]",
-  ]
+  member             = "serviceAccount:${var.gcp_project_id}.svc.id.goog[${var.eso_namespace}/${var.eso_ksa}]"
 }

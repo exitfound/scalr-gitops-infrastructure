@@ -13,9 +13,9 @@ output "eso_gsa_email_applied" {
   value       = local.eso_gsa_email
 }
 
-output "scalr_agent_gsa_email_applied" {
-  description = "GSA email written into Scalr Agent ServiceAccount"
-  value       = local.scalr_agent_gsa_email
+output "scalr_agent_gsa_emails_applied" {
+  description = "GSA emails written into Scalr Agent ServiceAccounts, keyed by agent name"
+  value       = { for k, v in local.agents : k => v.scalr_agent_gsa_email }
 }
 
 output "gke_cluster_endpoint" {

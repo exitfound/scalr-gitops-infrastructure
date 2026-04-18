@@ -1,11 +1,19 @@
-output "scalr_agent_gsa_email" {
-  description = "GSA email for Scalr Agent — consumed by flux-bootstrap via terraform_remote_state"
-  value       = google_service_account.scalr_agent_gsa.email
+output "agents" {
+  description = "Per-agent outputs keyed by agent name — consumed by fluxcd-bootstrap via terraform_remote_state"
+  value = {
+    dev = {
+      scalr_agent_gsa_email = module.agent_dev.scalr_agent_gsa_email
+      agent_pool_id         = module.agent_dev.agent_pool_id
+      agent_pool_name       = module.agent_dev.agent_pool_name
+      namespace             = module.agent_dev.namespace
+      ksa                   = module.agent_dev.ksa
+    }
+  }
 }
 
 output "eso_gsa_email" {
-  description = "GSA email for ESO — consumed by flux-bootstrap via terraform_remote_state"
-  value       = google_service_account.eso_gsa.email
+  description = "GSA email for ESO — consumed by fluxcd-bootstrap via terraform_remote_state"
+  value       = module.eso.gsa_email
 }
 
 output "scalr_environment_id" {
@@ -13,9 +21,11 @@ output "scalr_environment_id" {
   value       = module.env_dev.environment_id
 }
 
-output "scalr_agent_pool_id" {
-  description = "Scalr agent pool ID — use as agent_pool_id in scalr-workspace module"
-  value       = module.agent_pool.agent_pool_id
+output "scalr_agent_pool_ids" {
+  description = "Map of agent name → Scalr agent pool ID"
+  value = {
+    dev = module.agent_dev.agent_pool_id
+  }
 }
 
 output "scalr_vcs_provider_id" {

@@ -1,7 +1,7 @@
 apiVersion: v1
 kind: ServiceAccount
 metadata:
-  name: scalr-agent
-  namespace: scalr-agent
+  name: ${ksa}
+  namespace: ${namespace}
   annotations:
     iam.gke.io/gcp-service-account: ${gsa_email}

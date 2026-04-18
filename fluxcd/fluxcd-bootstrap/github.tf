@@ -5,8 +5,8 @@
 # ===========================================================================
 
 locals {
-  eso_gsa_email         = data.terraform_remote_state.scalr_admin.outputs.eso_gsa_email
-  scalr_agent_gsa_email = data.terraform_remote_state.scalr_admin.outputs.scalr_agent_gsa_email
+  eso_gsa_email = data.terraform_remote_state.scalr_admin.outputs.eso_gsa_email
+  agents        = data.terraform_remote_state.scalr_admin.outputs.agents
 }
 
 resource "github_repository_file" "eso_serviceaccount" {
@@ -20,14 +20,20 @@ resource "github_repository_file" "eso_serviceaccount" {
   overwrite_on_create = true
 }
 
+# One serviceaccount.yaml per agent, keyed by agent name (matches scalr-admin agents map).
+# File path: fluxcd/infrastructure/scalr-agent-{name}/serviceaccount.yaml
 resource "github_repository_file" "scalr_agent_serviceaccount" {
+  for_each = local.agents
+
   repository          = var.github_repo
   branch              = var.github_branch
-  file                = "fluxcd/infrastructure/scalr-agent/serviceaccount.yaml"
+  file                = "fluxcd/infrastructure/scalr-agent-${each.key}/serviceaccount.yaml"
   content             = templatefile("${path.module}/templates/scalr-agent-serviceaccount.yaml.tpl", {
-    gsa_email = local.scalr_agent_gsa_email
+    gsa_email = each.value.scalr_agent_gsa_email
+    namespace = each.value.namespace
+    ksa       = each.value.ksa
   })
-  commit_message      = "chore(flux-bootstrap): set Scalr Agent GSA email [skip ci]"
+  commit_message      = "chore(flux-bootstrap): set Scalr Agent GSA email [${each.key}] [skip ci]"
   overwrite_on_create = true
 }
 
@@ -43,12 +49,11 @@ resource "github_repository_file" "clustersecretstore" {
 }
 
 # ===========================================================================
-# Per-cluster Kustomization files (only for clusters other than dev, which
-# already has these files in git).
+# Per-cluster Kustomization files — always created by Terraform for every
+# cluster, ensuring a single consistent path regardless of cluster name.
 # ===========================================================================
 
 resource "github_repository_file" "cluster_kustomization" {
-  count               = var.cluster_name == "dev" ? 0 : 1
   repository          = var.github_repo
   branch              = var.github_branch
   file                = "fluxcd/clusters/${var.cluster_name}/kustomization.yaml"
@@ -58,7 +63,6 @@ resource "github_repository_file" "cluster_kustomization" {
 }
 
 resource "github_repository_file" "cluster_infrastructure" {
-  count               = var.cluster_name == "dev" ? 0 : 1
   repository          = var.github_repo
   branch              = var.github_branch
   file                = "fluxcd/clusters/${var.cluster_name}/infrastructure.yaml"

@@ -1,6 +1,7 @@
 terraform {
   backend "gcs" {
-    # Переопределяется через -backend-config="prefix=fluxcd-bootstrap/<cluster>"
+    # Переопределяется через -backend-config:
+    #   terraform init -backend-config="bucket=YOUR_BUCKET" -backend-config="prefix=fluxcd-bootstrap/<cluster>"
     bucket = "terraform_state_dev_beneflo"
     prefix = "fluxcd-bootstrap/dev"
   }

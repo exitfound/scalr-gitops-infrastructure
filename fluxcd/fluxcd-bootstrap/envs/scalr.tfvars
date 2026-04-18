@@ -1,4 +1,4 @@
-cluster_name     = "dev"
+cluster_name     = "scalr"
 gke_cluster_name = "beneflo-dev-cluster"
 gke_location     = "europe-north2"
 gcp_project_id   = "beneflo-gcp-project-dev"

@@ -22,7 +22,6 @@ provider "google" {
 }
 
 provider "scalr" {
-  hostname = var.scalr_hostname
-  # Token read from SCALR_TOKEN env var (secret name matches var.scalr_api_token_secret_name):
+  hostname = "kitezh.scalr.io"
   # export SCALR_TOKEN=$(gcloud secrets versions access latest --secret=scalr-api-token --project=PROJECT)
 }

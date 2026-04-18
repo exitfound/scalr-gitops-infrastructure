@@ -29,11 +29,11 @@ spec:
 apiVersion: kustomize.toolkit.fluxcd.io/v1
 kind: Kustomization
 metadata:
-  name: infrastructure-scalr-agent
+  name: infrastructure-scalr-agent-dev
   namespace: flux-system
 spec:
   interval: 10m
-  path: ./fluxcd/infrastructure/scalr-agent
+  path: ./fluxcd/infrastructure/scalr-agent-dev
   prune: true
   sourceRef:
     kind: GitRepository

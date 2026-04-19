@@ -40,18 +40,3 @@ spec:
     name: flux-system
   dependsOn:
     - name: infrastructure-external-secrets-config
----
-apiVersion: kustomize.toolkit.fluxcd.io/v1
-kind: Kustomization
-metadata:
-  name: infrastructure-scalr-agent-test
-  namespace: flux-system
-spec:
-  interval: 10m
-  path: ./fluxcd/infrastructure/scalr-agent-test
-  prune: true
-  sourceRef:
-    kind: GitRepository
-    name: flux-system
-  dependsOn:
-    - name: infrastructure-external-secrets-config

@@ -76,15 +76,6 @@ provider "flux" {
 }
 
 # ===========================================================================
-# GitHub provider
-# ===========================================================================
-
-provider "github" {
-  owner = var.github_org
-  token = data.google_secret_manager_secret_version.github_pat.secret_data
-}
-
-# ===========================================================================
 # Flux Bootstrap
 #
 # Installs Flux controllers, creates flux-system namespace, GitHub auth
@@ -100,10 +91,4 @@ resource "flux_bootstrap_git" "this" {
   embedded_manifests = true
   path               = "fluxcd/clusters/${var.cluster_name}"
   version            = "v${var.flux_version}"
-
-  depends_on = [
-    github_repository_file.eso_serviceaccount,
-    github_repository_file.scalr_agent_serviceaccount,
-    github_repository_file.clustersecretstore,
-  ]
 }

@@ -66,7 +66,9 @@ resource "github_repository_file" "cluster_infrastructure" {
   repository          = var.github_repo
   branch              = var.github_branch
   file                = "fluxcd/clusters/${var.cluster_name}/infrastructure.yaml"
-  content             = file("${path.module}/templates/cluster-infrastructure.yaml.tpl")
+  content             = templatefile("${path.module}/templates/cluster-infrastructure.yaml.tpl", {
+    agents = local.agents
+  })
   commit_message      = "chore(flux-bootstrap): add infrastructure Kustomizations for ${var.cluster_name} [skip ci]"
   overwrite_on_create = true
 }

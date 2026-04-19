@@ -12,6 +12,22 @@ module "agent_dev" {
   eso_gsa_email                = module.eso.gsa_email
 }
 
+module "agent_test" {
+  source = "./modules/scalr-agent"
+
+  name                         = "test"
+  gcp_project_id               = var.gcp_project_id
+  infra_project_id             = var.gcp_project_id
+  scalr_agent_gsa_name         = "scalr-agent-gsa-test"
+  scalr_agent_namespace        = "scalr-agent-test"
+  scalr_agent_ksa              = "scalr-agent-test"
+  state_bucket                 = "terraform_state_dev_beneflo"
+  agent_pool_name              = "scalr-gitops-infrastructure-agent-test"
+  agent_pool_vcs_enabled       = false
+  agent_pool_token_secret_name = "scalr-agent-pool-token-test"
+  eso_gsa_email                = module.eso.gsa_email
+}
+
 # To add a new agent in a different GCP project, copy this block and change the values.
 # infra_project_id stays the same (cluster never moves).
 # gcp_project_id changes to the target project.

@@ -25,18 +25,20 @@ spec:
     name: flux-system
   dependsOn:
     - name: infrastructure-external-secrets
+%{ for name, _ in agents ~}
 ---
 apiVersion: kustomize.toolkit.fluxcd.io/v1
 kind: Kustomization
 metadata:
-  name: infrastructure-scalr-agent-dev
+  name: infrastructure-scalr-agent-${name}
   namespace: flux-system
 spec:
   interval: 10m
-  path: ./fluxcd/infrastructure/scalr-agent-dev
+  path: ./fluxcd/infrastructure/scalr-agent-${name}
   prune: true
   sourceRef:
     kind: GitRepository
     name: flux-system
   dependsOn:
     - name: infrastructure-external-secrets-config
+%{ endfor ~}

@@ -8,6 +8,13 @@ output "agents" {
       namespace             = module.agent_dev.namespace
       ksa                   = module.agent_dev.ksa
     }
+    test = {
+      scalr_agent_gsa_email = module.agent_test.scalr_agent_gsa_email
+      agent_pool_id         = module.agent_test.agent_pool_id
+      agent_pool_name       = module.agent_test.agent_pool_name
+      namespace             = module.agent_test.namespace
+      ksa                   = module.agent_test.ksa
+    }
   }
 }
 
@@ -24,7 +31,8 @@ output "scalr_environment_id" {
 output "scalr_agent_pool_ids" {
   description = "Map of agent name → Scalr agent pool ID"
   value = {
-    dev = module.agent_dev.agent_pool_id
+    dev  = module.agent_dev.agent_pool_id
+    test = module.agent_test.agent_pool_id
   }
 }
 

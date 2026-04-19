@@ -1,0 +1,8 @@
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: HelmRepository
+metadata:
+  name: scalr-agent-helm
+  namespace: scalr-agent-test
+spec:
+  interval: 24h
+  url: https://scalr.github.io/agent-helm/

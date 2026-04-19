@@ -5,6 +5,12 @@ metadata:
   namespace: scalr-agent-test
 spec:
   interval: 15m
+  install:
+    remediation:
+      retries: -1
+  upgrade:
+    remediation:
+      retries: -1
   chart:
     spec:
       chart: agent-local

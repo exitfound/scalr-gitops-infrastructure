@@ -3,7 +3,7 @@ terraform {
     # Переопределяется через -backend-config:
     #   terraform init -backend-config="bucket=YOUR_BUCKET" -backend-config="prefix=fluxcd-bootstrap/<cluster>"
     bucket = "terraform_state_dev_beneflo"
-    prefix = "fluxcd-bootstrap/dev"
+    prefix = "fluxcd-bootstrap/scalr"
   }
 
   required_providers {

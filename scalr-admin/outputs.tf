@@ -1,12 +1,12 @@
 output "agents" {
   description = "Per-agent outputs keyed by agent name — consumed by fluxcd-bootstrap via terraform_remote_state"
   value = {
-    dev = {
-      scalr_agent_gsa_email = module.agent_dev.scalr_agent_gsa_email
-      agent_pool_id         = module.agent_dev.agent_pool_id
-      agent_pool_name       = module.agent_dev.agent_pool_name
-      namespace             = module.agent_dev.namespace
-      ksa                   = module.agent_dev.ksa
+    main = {
+      scalr_agent_gsa_email = module.agent_main.scalr_agent_gsa_email
+      agent_pool_id         = module.agent_main.agent_pool_id
+      agent_pool_name       = module.agent_main.agent_pool_name
+      namespace             = module.agent_main.namespace
+      ksa                   = module.agent_main.ksa
     }
   }
 }
@@ -24,7 +24,7 @@ output "scalr_environment_id" {
 output "scalr_agent_pool_ids" {
   description = "Map of agent name → Scalr agent pool ID"
   value = {
-    dev = module.agent_dev.agent_pool_id
+    main = module.agent_main.agent_pool_id
   }
 }
 

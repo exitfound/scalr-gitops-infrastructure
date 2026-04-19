@@ -1,7 +1,7 @@
-module "agent_dev" {
+module "agent_main" {
   source = "./modules/scalr-agent"
 
-  name                         = "dev"
+  name                         = "main"
   gcp_project_id               = "beneflo-gcp-project-dev"
   infra_project_id             = var.gcp_project_id
   scalr_agent_gsa_name         = "scalr-agent-gsa"
@@ -11,6 +11,7 @@ module "agent_dev" {
   agent_pool_token_secret_name = "scalr-agent-pool-token"
   eso_gsa_email                = module.eso.gsa_email
 }
+
 
 # To add a new agent in a different GCP project, copy this block and change the values.
 # infra_project_id stays the same (cluster never moves).

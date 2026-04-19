@@ -1,6 +1,40 @@
 # scalr-gitops-infrastructure
 
-GitOps инфраструктура: Scalr-as-code (Terraform) + FluxCD (Kubernetes). Управление Scalr через Terraform CLI, GitOps через FluxCD + ESO + Workload Identity.
+GitOps-инфраструктура: Scalr-as-code (Terraform) + FluxCD (Kubernetes). Один GKE-кластер выступает management-кластером — в нём работают ESO и Scalr-агент. Scalr управляет внешними Terraform-проектами через VCS-workspaces; state каждого проекта хранится в GCS, не в Scalr.
+
+---
+
+## Архитектура
+
+```
+GKE cluster (management)
+  ├── ESO pod
+  │     └── KSA external-secrets → WI → eso-gsa@PROJECT
+  │                                       └── читает JWT агентов из Secret Manager
+  └── Scalr Agent pod
+        └── KSA scalr-agent → WI → scalr-agent-gsa@PROJECT
+                                     ├── storage.objectAdmin → GCS state bucket
+                                     └── управляет ресурсами целевого GCP проекта
+```
+
+**Поток JWT токена к агенту:**
+```
+Scalr UI → Agent Pool → Add Token → eyJ...
+  → Secret Manager (scalr-agent-pool-token)
+    → ESO (через Workload Identity, без статических ключей)
+      → K8s Secret scalr-agent-token
+        → HelmRelease valuesFrom
+          → Scalr Agent pod подключается к Scalr
+```
+
+**Цепочка Flux Kustomizations:**
+```
+GitRepository/flux-system (GitHub, main, interval 10m)
+  └─ Kustomization/flux-system → fluxcd/clusters/scalr
+       ├─ infrastructure-external-secrets          → ESO HelmRelease
+       ├─ infrastructure-external-secrets-config   → ClusterSecretStore (dependsOn: ESO)
+       └─ infrastructure-scalr-agent           → ExternalSecret + Agent HelmRelease (dependsOn: ESO config)
+```
 
 ---
 
@@ -8,116 +42,73 @@ GitOps инфраструктура: Scalr-as-code (Terraform) + FluxCD (Kuberne
 
 ```
 scalr-gitops-infrastructure/
-├── scalr-admin/                        # Terraform: GCP bootstrap + Scalr конфигурация
-│   ├── versions.tf                     # GCS backend + providers (google, scalr)
-│   ├── variables.tf                    # gcp_project_id, gcp_region, eso_namespace, eso_ksa
-│   ├── terraform.tfvars                # Только gcp_project_id + gcp_region
-│   ├── data.tf                         # Читает github-pat из GCP Secret Manager
-│   ├── gcp.tf                          # ESO GSA + WI binding (shared)
-│   ├── agents.tf                       # Явные module-блоки для каждого Scalr Agent
-│   ├── environment.tf                  # Scalr environment
-│   ├── vcs.tf                          # Scalr VCS provider (GitHub)
-│   ├── workspaces.tf                   # scalr_workspace.admin (CLI, execution_mode=local)
-│   ├── outputs.tf                      # agents map + GSA emails + Scalr resource IDs
-│   └── modules/
-│       ├── scalr-agent/                # Per-agent: GSA + WI + GCS IAM + SM IAM + agent pool
-│       ├── scalr-environment/          # scalr_environment resource
-│       ├── scalr-vcs-provider/         # scalr_vcs_provider resource
-│       └── scalr-workspace/            # scalr_workspace + scalr_variable resources
+├── scalr-admin/                        # Terraform bootstrap: GCP + Scalr ресурсы (CLI-only)
+│   ├── modules/
+│   │   ├── eso/                        # ESO GSA + WI binding (shared, один на кластер)
+│   │   ├── scalr-agent/               # Per-agent: GSA + WI + GCS IAM + SM IAM + agent pool
+│   │   ├── scalr-environment/         # scalr_environment resource
+│   │   ├── scalr-vcs-provider/        # scalr_vcs_provider resource
+│   │   └── scalr-workspace/           # scalr_workspace + scalr_variable resources
+│   ├── gcp.tf                         # module "eso"
+│   ├── agents.tf                      # module "agent_*" блоки
+│   ├── environment.tf                 # module "env_dev"
+│   ├── vcs.tf                         # module "vcs_github"
+│   ├── workspaces.tf                  # module "ws_admin" (CLI, local)
+│   ├── outputs.tf                     # agents map + GSA emails + Scalr IDs
+│   ├── versions.tf                    # GCS backend + providers
+│   ├── variables.tf                   # gcp_project_id, gcp_region
+│   └── terraform.tfvars               # gcp_project_id + gcp_region
 └── fluxcd/
-    ├── fluxcd-bootstrap/               # Terraform: bootstrap FluxCD на кластере (CLI, per-cluster)
-    │   ├── envs/scalr.tfvars           # Значения для scalr кластера (cluster_name = "scalr")
-    │   └── templates/                  # Шаблоны ServiceAccount + ClusterSecretStore
-    ├── clusters/scalr/                 # Scalr infra-кластер. Не "dev" среда —
-    │                                   #   management-кластер для всей Scalr платформы.
-    │                                   #   infrastructure.yaml — Kustomization с dependsOn
+    ├── fluxcd-bootstrap/              # Terraform bootstrap: Flux на кластере (CLI-only)
+    │   ├── main.tf                    # GKE creds + Flux bootstrap
+    │   ├── outputs.tf                 # GSA emails для справки при ручном создании SA
+    │   ├── variables.tf
+    │   ├── versions.tf
+    │   └── envs/scalr.tfvars          # параметры кластера
+    ├── clusters/scalr/
+    │   ├── kustomization.yaml         # Flux entry point
+    │   └── infrastructure.yaml        # Flux Kustomization CRs (редактируется вручную)
     └── infrastructure/
-        ├── external-secrets/           # ESO HelmRelease
-        ├── external-secrets-config/    # ClusterSecretStore → GCP SM через WI
-        └── scalr-agent-dev/            # Scalr Agent (dev): ExternalSecret + HelmRelease
+        ├── external-secrets/          # ESO: namespace, SA, HelmRepository, HelmRelease
+        ├── external-secrets-config/   # ClusterSecretStore → GCP SM (WI)
+        └── scalr-agent/           # Scalr Agent: namespace, SA, ExternalSecret, HelmRelease
 ```
 
 ---
 
-## Архитектура
+## Почему CLI-only для bootstrap (проблема курицы и яйца)
+
+`scalr-admin` и `fluxcd-bootstrap` запускаются **только через CLI** — никогда через Scalr VCS-workspace. Причина в трёх взаимозависимых циклах:
 
 ```
-GKE cluster (один, shared)
-  ├── ESO pod
-  │     └── KSA → eso-gsa@PROJECT → читает JWT всех агентов из SM
-  │
-  └── Scalr Agent pod (dev)
-        └── KSA → scalr-agent-gsa@PROJECT → управляет GCP ресурсами
-                                           → читает/пишет Terraform state в GCS
+[1] Scalr workspace нужен Scalr environment
+    → environment создаётся в scalr-admin
+    → scalr-admin нельзя запустить через Scalr workspace
+    (workspace управляет ресурсом от которого сам зависит)
+
+[2] Scalr VCS workspace нужен Scalr Agent для запуска
+    → Agent разворачивается через fluxcd-bootstrap
+    → fluxcd-bootstrap нельзя запустить через Scalr VCS workspace
+    (нет агента чтобы запустить workspace который разворачивает агента)
+
+[3] ESO читает JWT агента через WI
+    → WI binding создаётся в scalr-admin
+    → scalr-admin создаётся до того как агент существует
 ```
 
-**ESO — shared** (один на кластер). **Каждый Scalr Agent** — свой pod, своя GSA, своя WI binding, свой agent pool. Добавление агента для нового GCP проекта = один новый `module "agent_*"` блок в `agents.tf`.
+**Разрыв цикла:** два `terraform apply` через CLI один раз. После этого все изменения — через git push + Flux.
 
 ---
 
-## Ключевые решения
+## Где хранятся секреты
 
-### Почему WI в scalr-admin/, а не в VCS-workspace
+| Секрет | Где | Кто читает |
+|--------|-----|-----------|
+| `scalr-api-token` | GCP Secret Manager | `export SCALR_TOKEN=$(gcloud ...)` перед terraform |
+| `github-pat` | GCP Secret Manager | `data.tf` → `scalr_vcs_provider` + Flux git auth |
+| `scalr-agent-pool-token` | GCP Secret Manager | ESO → K8s Secret → Scalr Agent pod |
 
-WI нужна для старта ESO и Scalr Agent. Вынести в VCS-workspace нельзя из-за circular dependency:
-
-```
-VCS-workspace создаёт WI → нужен Scalr Agent для запуска
-Scalr Agent стартует → нужна WI (ESO читает JWT через WI)
-```
-
-WI создаётся один раз через CLI до того как агент существует. После бутстрапа меняется редко.
-
-### Почему scalr-admin/ управляется только через CLI
-
-`scalr-admin/` создаёт Scalr ресурсы (environment, agent pool, workspace). Если прицепить к Scalr VCS-workspace — циклическая зависимость. Поэтому:
-
-- Запускается **только через CLI**
-- `workspace.admin` создаётся в Scalr но `execution_mode = "local"`
-- Стейт в **GCS**, не в Scalr
-
-### Почему SM контейнеры не в Terraform
-
-Terraform не может создать SM контейнер и сразу же прочитать из него значение в одном `apply`. SM контейнеры создаются **один раз вручную через gcloud**. В Terraform только `data` sources.
-
-### Почему terraform.tfvars содержит только 2 строки
-
-Все значения (Scalr account ID, hostname, GitHub username, agent pool names и т.д.) захардкожены прямо в вызовах модулей — там где используются. `terraform.tfvars` содержит только значения, нужные для Google provider: `gcp_project_id` и `gcp_region`.
-
-### Где хранятся секреты
-
-| Секрет | GCP Secret Manager | Кто читает |
-|--------|-------------------|------------|
-| `scalr-api-token` | `scalr-api-token` | `export SCALR_TOKEN=$(gcloud ...)` перед terraform |
-| `github-pat` | `github-pat` | `data.tf` → `scalr_vcs_provider` |
-| `scalr-agent-pool-token` | `scalr-agent-pool-token` | ESO → K8s Secret → Scalr Agent pod |
-
-Секреты не попадают в Terraform state, не хранятся в git, не передаются как переменные.
-
-### Поток JWT токена к агенту
-
-```
-Scalr UI → Add Token → eyJ...
-    → gcloud secrets versions add scalr-agent-pool-token
-        → GCP Secret Manager
-            → ESO (Workload Identity, без ключей)
-                → ExternalSecret → K8s Secret scalr-agent-token
-                    → HelmRelease valuesFrom
-                        → Scalr Agent pod подключается к Scalr
-```
-
-### Цепочка зависимостей FluxCD
-
-```
-GitRepository/flux-system (GitHub, main, interval 5m)
-  └─ Kustomization/flux-system → path: ./fluxcd/clusters/scalr
-       ├─ infrastructure-external-secrets
-       │    └─ ESO HelmRelease
-       ├─ infrastructure-external-secrets-config  [dependsOn: external-secrets]
-       │    └─ ClusterSecretStore gcp-sm (Workload Identity)
-       └─ infrastructure-scalr-agent-dev          [dependsOn: external-secrets-config]
-            └─ ExternalSecret + Scalr Agent HelmRelease
-```
+Секреты **не попадают в git**. В GCS state попадает `github-pat` (через data source — ограничение Terraform). State bucket должен иметь tight IAM.
 
 ---
 
@@ -125,73 +116,94 @@ GitRepository/flux-system (GitHub, main, interval 5m)
 
 ### Предварительные требования
 
-- GCP проект с GKE и Workload Identity
-- GCS бакет для Terraform state (создать вручную)
+- GCP проект с GKE кластером и включённым Workload Identity
 - `gcloud auth login && gcloud auth application-default login`
 - `kubectl` настроен на кластер
 - `terraform` >= 1.5
-- Scalr аккаунт (free tier достаточно)
 
 ---
 
-### Шаг 1: Получить токены
+### Шаг 1 — Создать GCS bucket для Terraform state
+
+```bash
+PROJECT=your-gcp-project-id
+BUCKET=your-state-bucket-name
+
+gcloud storage buckets create gs://$BUCKET \
+  --project=$PROJECT \
+  --location=europe-north1 \
+  --uniform-bucket-level-access
+
+gcloud storage buckets update gs://$BUCKET --versioning
+```
+
+Bucket создаётся вручную один раз — Terraform не может создать собственный backend.
+
+---
+
+### Шаг 2 — Собрать токены
 
 **Scalr API Token:**
-Scalr UI → Account Settings → API Tokens → Create Token → скопировать `eyJ...`
+```
+Scalr UI → Account Settings → API Tokens → Create Token → скопировать eyJ...
+```
 
-**GitHub PAT:**
-GitHub → Settings → Developer settings → Personal access tokens → Generate new token (classic) → scope: `repo` → скопировать `ghp_...`
+**GitHub Personal Access Token:**
+```
+GitHub → Settings → Developer settings → Personal access tokens (classic)
+→ Generate new token → scope: repo → скопировать ghp_...
+```
 
-**Agent Pool JWT** — получить после Шага 4 (нужен уже созданный pool).
+**Agent Pool JWT** — получить после Шага 5 (pool создаётся в ходе terraform apply).
 
 ---
 
-### Шаг 2: Адаптировать под свой аккаунт
+### Шаг 3 — Создать SM контейнеры и залить секреты
+
+```bash
+gcloud secrets create github-pat              --replication-policy=automatic --project=$PROJECT
+gcloud secrets create scalr-api-token         --replication-policy=automatic --project=$PROJECT
+gcloud secrets create scalr-agent-pool-token  --replication-policy=automatic --project=$PROJECT
+
+printf %s "ghp_..."  | gcloud secrets versions add github-pat      --data-file=- --project=$PROJECT
+printf %s "eyJ_..."  | gcloud secrets versions add scalr-api-token --data-file=- --project=$PROJECT
+```
+
+> **Важно:** `printf %s` вместо `echo` — `echo` добавляет перенос строки, что вызывает молчаливые ошибки аутентификации.
+
+`scalr-agent-pool-token` заполнить после Шага 5.
+
+SM контейнеры создаются вручную — Terraform не может создать контейнер и сразу читать из него в одном apply.
+
+---
+
+### Шаг 4 — Адаптировать конфигурацию под свой аккаунт
 
 | Файл | Что менять |
 |------|-----------|
 | `scalr-admin/terraform.tfvars` | `gcp_project_id`, `gcp_region` |
-| `scalr-admin/versions.tf` | GCS bucket name + Scalr hostname в `provider "scalr"` |
+| `scalr-admin/versions.tf` | GCS bucket name, Scalr hostname в `provider "scalr"` |
 | `scalr-admin/agents.tf` | `gcp_project_id`, `scalr_agent_gsa_name`, `state_bucket`, `agent_pool_name` |
 | `scalr-admin/environment.tf` | `account_id` |
 | `scalr-admin/vcs.tf` | `name` (github username), `account_id` |
-| `fluxcd/fluxcd-bootstrap/envs/scalr.tfvars` | `gke_cluster_name`, `gcp_project_id`, `github_org` |
-
-> GSA email-ы в FluxCD манифестах заполняются автоматически через `terraform_remote_state` — ручное редактирование не нужно.
+| `fluxcd/fluxcd-bootstrap/envs/scalr.tfvars` | `gke_cluster_name`, `gcp_project_id`, `github_org`, `state_bucket` |
 
 ---
 
-### Шаг 3: Создать SM контейнеры и залить секреты
-
-```bash
-PROJECT=your-gcp-project-id
-
-gcloud secrets create github-pat             --replication-policy=automatic --project=$PROJECT
-gcloud secrets create scalr-api-token        --replication-policy=automatic --project=$PROJECT
-gcloud secrets create scalr-agent-pool-token --replication-policy=automatic --project=$PROJECT
-
-printf %s "ghp_..."  | gcloud secrets versions add github-pat      --data-file=- --project=$PROJECT
-printf %s "eyJ..."   | gcloud secrets versions add scalr-api-token --data-file=- --project=$PROJECT
-# scalr-agent-pool-token — заполнить после Шага 4
-```
-
----
-
-### Шаг 4: Terraform apply для scalr-admin
+### Шаг 5 — terraform apply: scalr-admin
 
 ```bash
 export SCALR_TOKEN=$(gcloud secrets versions access latest --secret=scalr-api-token --project=$PROJECT)
 
 cd scalr-admin/
 terraform init
-terraform plan
 terraform apply
 ```
 
 Создаётся:
-- GSA `eso-gsa` + WI binding → для ESO
-- GSA `scalr-agent-gsa` + WI binding + GCS IAM + SM accessor → для Scalr Agent (dev)
-- Scalr environment, agent pool, VCS provider GitHub, admin workspace
+- `eso-gsa` — GSA для ESO + WI binding
+- `scalr-agent-gsa` — GSA для Scalr Agent + WI binding + GCS IAM + SM IAM accessor
+- Scalr environment, agent pool, VCS provider GitHub, admin workspace (local execution)
 
 Проверить outputs:
 
@@ -199,72 +211,113 @@ terraform apply
 terraform output
 ```
 
----
-
-### Шаг 5: Получить Agent Pool JWT и залить в SM
-
-```
-Scalr UI → Account Settings → Agent Pools → scalr-gitops-infrastructure-agent → Tokens → Add Token
-```
-
-```bash
-printf %s "eyJ..." | gcloud secrets versions add scalr-agent-pool-token --data-file=- --project=$PROJECT
-```
+Нужно запомнить значения из `agents.dev.scalr_agent_gsa_email` и `eso_gsa_email` — понадобятся в Шаге 7.
 
 ---
 
-### Шаг 6: Проверить Workload Identity на кластере
+### Шаг 6 — Получить Agent Pool JWT и залить в SM
+
+```
+Scalr UI → Account Settings → Agent Pools → <agent_pool_name> → Tokens → Add Token → скопировать eyJ...
+```
 
 ```bash
-gcloud container clusters describe <CLUSTER> --zone=<ZONE> --project=$PROJECT \
-  --format="value(workloadIdentityConfig.workloadPool)"
-# Ожидаем: <PROJECT>.svc.id.goog
+printf %s "eyJ_..." | gcloud secrets versions add scalr-agent-pool-token \
+  --data-file=- --project=$PROJECT
 ```
 
 ---
 
-### Шаг 7: Bootstrap FluxCD
+### Шаг 7 — Создать serviceaccount.yaml с Workload Identity аннотацией
 
-```bash
-cd fluxcd/fluxcd-bootstrap/
+Вручную заполнить два файла, подставив GSA emails из `terraform output` (Шаг 5):
 
-terraform init -backend-config="prefix=fluxcd-bootstrap/dev"
-terraform apply -var-file=envs/scalr.tfvars
+**`fluxcd/infrastructure/external-secrets/serviceaccount.yaml`:**
+```yaml
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: external-secrets
+  namespace: external-secrets
+  annotations:
+    iam.gke.io/gcp-service-account: <eso_gsa_email из terraform output>
 ```
 
-Terraform автоматически:
-1. Читает GSA emails из `scalr-admin` remote state
-2. Коммитит `serviceaccount.yaml` с правильными WI аннотациями в GitHub
-3. Устанавливает FluxCD на кластер и регистрирует GitRepository
+**`fluxcd/infrastructure/scalr-agent/serviceaccount.yaml`:**
+```yaml
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: scalr-agent
+  namespace: scalr-agent
+  annotations:
+    iam.gke.io/gcp-service-account: <agents.dev.scalr_agent_gsa_email из terraform output>
+```
 
-FluxCD после этого разворачивает цепочку сам: ESO → ClusterSecretStore → Scalr Agent.
+```bash
+git add fluxcd/infrastructure/
+git commit -m "chore: set WI annotations for ESO and scalr-agent"
+git push
+```
+
+WI аннотация связывает K8s ServiceAccount с GCP GSA. Без неё pod не сможет аутентифицироваться в GCP через Workload Identity.
 
 ---
 
-### Шаг 8: Проверка
+### Шаг 8 — terraform apply: fluxcd-bootstrap
 
 ```bash
-# FluxCD — все Kustomization Ready
+gcloud container clusters get-credentials <CLUSTER_NAME> --zone <ZONE> --project=$PROJECT
+
+terraform -chdir=fluxcd/fluxcd-bootstrap init \
+  -backend-config="bucket=$BUCKET" \
+  -backend-config="prefix=fluxcd-bootstrap/scalr"
+
+terraform -chdir=fluxcd/fluxcd-bootstrap apply -var-file=envs/scalr.tfvars
+```
+
+Terraform устанавливает Flux контроллеры в кластер, создаёт `GitRepository` + root `Kustomization` указывающую на `fluxcd/clusters/scalr`. После apply Flux начинает следить за репой.
+
+> `fluxcd-bootstrap` нужно запускать только при первом деплое или при обновлении версии Flux. Не нужен при добавлении новых агентов или изменении манифестов.
+
+---
+
+### Шаг 9 — Дождаться автоматического деплоя
+
+Flux синхронизирует репу с интервалом 10 минут. Порядок деплоя определён через `dependsOn`:
+
+```
+1. infrastructure-external-secrets      → ESO + CRDs устанавливаются через Helm
+2. infrastructure-external-secrets-config → ClusterSecretStore (нужны CRDs из шага 1)
+3. infrastructure-scalr-agent       → ExternalSecret + Scalr Agent (нужен ClusterSecretStore)
+```
+
+Проверка:
+
+```bash
+# Все Kustomizations Ready
 flux get kustomization -A
 
-# HelmReleases — ESO и scalr-agent Ready
+# HelmReleases Ready
 flux get helmrelease -A
 
-# ESO — ClusterSecretStore Valid, ExternalSecret Synced
-kubectl get clustersecretstore
-kubectl get externalsecret -n scalr-agent
+# ClusterSecretStore Valid
+kubectl get clustersecretstore gcp-sm
 
-# Scalr Agent — pod Running, подключился к Scalr
+# ExternalSecret Synced
+kubectl get externalsecret scalr-agent-token -n scalr-agent
+
+# Scalr Agent Running и подключился
 kubectl get pods -n scalr-agent
 kubectl logs -n scalr-agent -l app.kubernetes.io/name=agent-local --tail=20
-# Ожидаем: "connected" или "waiting for runs"
+# Ожидаем: "Agent session established" + "Agent started"
 ```
 
 ---
 
 ## Регулярное использование
 
-Для изменений в Scalr конфигурации:
+### Изменения в Scalr конфигурации (workspaces, environments)
 
 ```bash
 export SCALR_TOKEN=$(gcloud secrets versions access latest --secret=scalr-api-token --project=$PROJECT)
@@ -273,39 +326,170 @@ terraform plan
 terraform apply
 ```
 
-Никаких VCS, никаких автоматических запусков — только явный CLI.
+### Добавление нового Terraform workspace
+
+В `scalr-admin/workspaces.tf`:
+
+```hcl
+module "ws_my_project" {
+  source              = "./modules/scalr-workspace"
+  name                = "my-project"
+  environment_id      = module.env_dev.environment_id
+  execution_mode      = "remote"
+  terraform_version   = "1.5.7"
+  auto_apply          = false
+  agent_pool_id       = module.agent_main.agent_pool_id
+  vcs_provider_id     = module.vcs_github.vcs_provider_id
+  vcs_repo_identifier = "your-github-username/your-repo"
+  vcs_branch          = "main"
+  working_directory   = "terraform/"
+  trigger_prefixes    = ["terraform/"]
+}
+```
+
+```bash
+terraform apply  # в scalr-admin/
+```
+
+Workspace появится в Scalr UI и будет запускать Terraform при push в repo.
+
+### Добавление нового компонента через GitOps
+
+Создать директорию `fluxcd/infrastructure/my-app/` с манифестами и добавить Kustomization в `fluxcd/clusters/scalr/infrastructure.yaml`:
+
+```yaml
+---
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: infrastructure-my-app
+  namespace: flux-system
+spec:
+  interval: 10m
+  path: ./fluxcd/infrastructure/my-app
+  prune: true
+  sourceRef:
+    kind: GitRepository
+    name: flux-system
+  dependsOn:
+    - name: infrastructure-external-secrets-config  # если использует ExternalSecret
+```
+
+```bash
+git push  # Flux подхватит автоматически в течение 10 минут
+```
+
+### Добавление нового Scalr Agent (для нового GCP проекта)
+
+**1. Создать SM контейнер для JWT нового агента:**
+```bash
+gcloud secrets create scalr-agent-pool-token-prod --replication-policy=automatic --project=$INFRA_PROJECT
+```
+
+**2. Добавить блок в `scalr-admin/agents.tf`:**
+```hcl
+module "agent_prod" {
+  source = "./modules/scalr-agent"
+
+  name                         = "prod"
+  gcp_project_id               = "your-gcp-project-prod"   # целевой проект
+  infra_project_id             = var.gcp_project_id         # проект кластера — не меняется
+  scalr_agent_gsa_name         = "scalr-agent-gsa-prod"
+  scalr_agent_namespace        = "scalr-agent-prod"
+  scalr_agent_ksa              = "scalr-agent-prod"
+  state_bucket                 = "terraform_state_prod"
+  agent_pool_name              = "scalr-gitops-infrastructure-agent-prod"
+  agent_pool_vcs_enabled       = false
+  agent_pool_token_secret_name = "scalr-agent-pool-token-prod"
+  eso_gsa_email                = module.eso.gsa_email
+}
+```
+
+Добавить в `outputs.tf` блок `prod` в `output "agents"` и в `output "scalr_agent_pool_ids"`.
+
+**3. `terraform apply` в scalr-admin.**
+
+**4. Создать `serviceaccount.yaml` с WI аннотацией:**
+```bash
+terraform output scalr_agent_gsa_emails  # взять email для prod
+```
+
+Создать `fluxcd/infrastructure/scalr-agent-prod/serviceaccount.yaml` с этим email.
+
+**5. Получить JWT из Scalr UI и залить в SM:**
+```
+Scalr UI → Agent Pools → scalr-gitops-infrastructure-agent-prod → Tokens → Add Token
+```
+```bash
+printf %s "eyJ..." | gcloud secrets versions add scalr-agent-pool-token-prod --data-file=- --project=$INFRA_PROJECT
+```
+
+**6. Создать FluxCD манифесты** `fluxcd/infrastructure/scalr-agent-prod/` (копия `scalr-agent/` с заменой namespace, KSA и SM secret name).
+
+**7. Добавить Kustomization в `fluxcd/clusters/scalr/infrastructure.yaml`.**
+
+**8. `git push`** — Flux задеплоит автоматически.
+
+### Ротация Agent Pool JWT
+
+JWT не истекает автоматически, но при необходимости замены:
+
+```bash
+# Scalr UI → Agent Pools → Add Token → скопировать новый eyJ...
+printf %s "eyJ_NEW" | gcloud secrets versions add scalr-agent-pool-token \
+  --data-file=- --project=$PROJECT
+# ESO обновит K8s Secret автоматически в течение 5 минут, агент переподключится
+```
 
 ---
 
 ## Устранение проблем
 
-### Залип state lock
+### Flux Kustomization застрял в False
 
 ```bash
-cd scalr-admin/
-terraform force-unlock <LOCK_ID>
+flux get kustomization -A
+kubectl describe kustomization infrastructure-external-secrets -n flux-system
 ```
+
+Частая причина: `external-secrets-config` применяется до того как ESO установил CRDs. Нужно подождать — Flux повторит попытку автоматически благодаря `remediation.retries: -1` в HelmRelease.
 
 ### ESO не читает секрет из SM
 
 ```bash
 kubectl describe clustersecretstore gcp-sm
 kubectl describe externalsecret scalr-agent-token -n scalr-agent
+# Проверить WI binding (должен быть infra project, не целевой):
 gcloud iam service-accounts get-iam-policy eso-gsa@$PROJECT.iam.gserviceaccount.com
-# Должен быть: serviceAccount:<PROJECT>.svc.id.goog[external-secrets/external-secrets]
+# Должно быть: serviceAccount:PROJECT.svc.id.goog[external-secrets/external-secrets]
 ```
 
 ### Scalr Agent не подключается
 
 ```bash
-kubectl get secret scalr-agent-token -n scalr-agent -o jsonpath='{.data.token}' | base64 -d | head -c 20
 kubectl logs -n scalr-agent -l app.kubernetes.io/name=agent-local --tail=30
 ```
 
-### Agent Pool Token истёк
+Если ошибка токена — JWT в SM невалиден. Залить новый (см. Ротация JWT выше).
+
+### Проверить WI на кластере
 
 ```bash
-# Scalr UI → Agent Pools → Add Token → скопировать новый JWT
-printf %s "eyJ_НОВЫЙ" | gcloud secrets versions add scalr-agent-pool-token --data-file=- --project=$PROJECT
-# ESO обновит K8s Secret автоматически в течение 5 минут
+gcloud container clusters describe <CLUSTER> --zone=<ZONE> --project=$PROJECT \
+  --format="value(workloadIdentityConfig.workloadPool)"
+# Ожидаем: PROJECT.svc.id.goog
+```
+
+### State lock завис
+
+```bash
+cd scalr-admin/
+terraform force-unlock <LOCK_ID>
+```
+
+### `No state file found` при terraform plan в fluxcd-bootstrap
+
+`scalr-admin` не применён. Применить и проверить:
+```bash
+cd scalr-admin/ && terraform output eso_gsa_email
 ```

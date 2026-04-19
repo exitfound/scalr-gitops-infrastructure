@@ -142,7 +142,7 @@ output "scalr_agent_gsa_emails" {
 State изолирован по prefix, один модуль обслуживает все кластеры:
 
 ```
-gs://terraform_state_dev_beneflo/
+gs://your-state-bucket/
 ├── scalr-admin/
 └── fluxcd-bootstrap/
     ├── scalr/

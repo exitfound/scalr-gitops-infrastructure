@@ -7,16 +7,16 @@ Terraform-конфигурация для bootstrap Scalr-as-code поверх G
 ## Архитектура
 
 ```
-GKE кластер (infra project: beneflo-gcp-project-dev)
+GKE кластер (infra project: your-gcp-project-id)
   │
   ├── ESO pod
   │     └── KSA: external-secrets (namespace: external-secrets)
-  │           └── WI → eso-gsa@beneflo-gcp-project-dev
+  │           └── WI → eso-gsa@your-gcp-project-id
   │                     └── читает JWT всех агентов из SM
   │
   └── Scalr Agent pod
         └── KSA: scalr-agent (namespace: scalr-agent)
-              └── WI → scalr-agent-gsa@beneflo-gcp-project-dev
+              └── WI → scalr-agent-gsa@your-gcp-project-id
                         ├── storage.objectAdmin → GCS state bucket
                         └── управляет ресурсами в целевом GCP проекте
 ```
@@ -230,7 +230,7 @@ Workspace с GCS state backend:
 # В репозитории workspace, versions.tf:
 terraform {
   backend "gcs" {
-    bucket = "terraform_state_dev_beneflo"
+    bucket = "your-state-bucket"
     prefix = "my-project"
   }
 }

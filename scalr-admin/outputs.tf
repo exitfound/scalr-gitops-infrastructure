@@ -18,7 +18,7 @@ output "eso_gsa_email" {
 
 output "scalr_environment_id" {
   description = "Scalr environment ID — use as environment_id in scalr-workspace module"
-  value       = module.env_dev.environment_id
+  value       = module.env_main.environment_id
 }
 
 output "scalr_agent_pool_ids" {

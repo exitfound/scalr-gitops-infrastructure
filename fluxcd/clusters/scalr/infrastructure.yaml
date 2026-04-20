@@ -4,7 +4,7 @@ metadata:
   name: infrastructure-external-secrets
   namespace: flux-system
 spec:
-  interval: 10m
+  interval: 5m
   path: ./fluxcd/infrastructure/external-secrets
   prune: true
   sourceRef:
@@ -17,7 +17,7 @@ metadata:
   name: infrastructure-external-secrets-config
   namespace: flux-system
 spec:
-  interval: 10m
+  interval: 5m
   path: ./fluxcd/infrastructure/external-secrets-config
   prune: true
   sourceRef:
@@ -32,7 +32,7 @@ metadata:
   name: infrastructure-scalr-agent
   namespace: flux-system
 spec:
-  interval: 10m
+  interval: 5m
   path: ./fluxcd/infrastructure/scalr-agent
   prune: true
   sourceRef:

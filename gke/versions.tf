@@ -2,7 +2,7 @@ terraform {
   required_version = ">= 1.3"
 
   backend "gcs" {
-    bucket = "terraform_state_dev_beneflo"
+    bucket = "scalr-infrastructure-bucket"
     prefix = "gke"
   }
 

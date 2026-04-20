@@ -2,10 +2,10 @@ module "agent_main" {
   source = "./modules/scalr-agent"
 
   name                         = "main"
-  gcp_project_id               = "beneflo-gcp-project-dev"
+  gcp_project_id               = "beneflo-main"
   infra_project_id             = var.gcp_project_id
   scalr_agent_gsa_name         = "scalr-agent-gsa"
-  state_bucket                 = "terraform_state_dev_beneflo"
+  state_bucket                 = "scalr-infrastructure-bucket"
   agent_pool_name              = "scalr-gitops-infrastructure-agent"
   agent_pool_vcs_enabled       = false
   agent_pool_token_secret_name = "scalr-agent-pool-token"

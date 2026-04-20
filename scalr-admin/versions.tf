@@ -1,6 +1,6 @@
 terraform {
   backend "gcs" {
-    bucket = "terraform_state_dev_beneflo"
+    bucket = "scalr-infrastructure-bucket"
     prefix = "scalr-admin"
   }
 

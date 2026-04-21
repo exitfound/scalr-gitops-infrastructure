@@ -105,6 +105,23 @@ terraform output eso_gsa_email
 
 Файл создаётся один раз при добавлении агента и меняется только при смене GSA.
 
+### Связь gke → fluxcd-bootstrap
+
+`fluxcd-bootstrap` читает GKE remote state чтобы получить `cluster_name` и `cluster_location` — копировать их вручную в `envs/scalr.tfvars` не нужно:
+
+```hcl
+# main.tf
+data "terraform_remote_state" "gke" {
+  backend = "gcs"
+  config  = { bucket = var.state_bucket, prefix = var.gke_state_prefix }
+}
+
+data "google_container_cluster" "gke" {
+  name     = data.terraform_remote_state.gke.outputs.cluster_name
+  location = data.terraform_remote_state.gke.outputs.cluster_location
+}
+```
+
 ### Связь scalr-admin → fluxcd-bootstrap
 
 `fluxcd-bootstrap` читает `scalr-admin` remote state для отображения GSA emails в outputs:
@@ -157,6 +174,7 @@ Prefix задаётся через `-backend-config` при `terraform init`.
 
 ### Предварительные требования
 
+- `gke` применён, state существует в GCS (`terraform_remote_state` читает cluster_name и cluster_location)
 - `scalr-admin` применён, outputs непусты
 - SM секреты заполнены: `github-pat`, `scalr-agent-pool-token`
 - `serviceaccount.yaml` файлы созданы вручную и запушены в git
@@ -333,9 +351,10 @@ printf %s "eyJ_NEW" | gcloud secrets versions add scalr-agent-pool-token \
 
 ### `No state file found` при terraform plan
 
-`scalr-admin` не применён или неправильный GCS prefix:
+`gke` или `scalr-admin` не применён — оба state нужны для `terraform_remote_state`:
 ```bash
-terraform -chdir=scalr-admin output eso_gsa_email
+cd gke/ && terraform apply
+cd scalr-admin/ && terraform apply
 ```
 
 ### `flux_bootstrap_git` таймаут

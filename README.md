@@ -67,7 +67,7 @@ scalr-gitops-infrastructure/
 │   └── terraform.tfvars               # gcp_project_id + gcp_region
 └── fluxcd/
     ├── fluxcd-bootstrap/              # Terraform bootstrap: Flux на кластере (CLI-only)
-    │   ├── main.tf                    # GKE creds + Flux bootstrap
+    │   ├── main.tf                    # GKE + scalr-admin remote state, GKE creds, Flux bootstrap
     │   ├── outputs.tf                 # GSA emails для справки
     │   ├── variables.tf
     │   ├── versions.tf
@@ -466,6 +466,8 @@ module "agent_prod" {
   gcp_project_id               = "your-gcp-project-prod"   # целевой проект
   infra_project_id             = var.gcp_project_id         # проект кластера — не меняется
   scalr_agent_gsa_name         = "scalr-agent-gsa-prod"
+  scalr_agent_namespace        = "scalr-agent-prod"
+  scalr_agent_ksa              = "scalr-agent-prod"
   state_bucket                 = "terraform_state_prod"
   agent_pool_name              = "scalr-gitops-infrastructure-agent-prod"
   agent_pool_vcs_enabled       = false
@@ -584,8 +586,9 @@ terraform destroy
 
 ### `No state file found` при terraform plan в fluxcd-bootstrap
 
-`scalr-admin` не применён. Применить сначала:
+`gke` или `scalr-admin` не применён — оба state нужны для `terraform_remote_state`. Применить сначала:
 ```bash
+cd gke/ && terraform apply
 cd scalr-admin/ && terraform apply
 ```
 

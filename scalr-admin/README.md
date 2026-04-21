@@ -45,7 +45,7 @@ scalr-admin/
 ├── data.tf                   # Читает github-pat из GCP Secret Manager
 ├── gcp.tf                    # module "eso"
 ├── agents.tf                 # Явные module "agent_*" блоки
-├── environment.tf            # module "env_dev"
+├── environment.tf            # module "env_main"
 ├── vcs.tf                    # module "vcs_github"
 ├── workspaces.tf             # module "ws_admin" (execution_mode=local)
 └── outputs.tf                # agents map + eso_gsa_email + Scalr resource IDs

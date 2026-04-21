@@ -3,15 +3,10 @@ variable "cluster_name" {
   description = "Logical cluster name used for Flux path and state prefix (dev, prod, staging)"
 }
 
-variable "gke_cluster_name" {
+variable "gke_state_prefix" {
   type        = string
-  description = "GKE cluster resource name as shown in GCP (e.g. dev-cluster)"
-}
-
-variable "gke_location" {
-  type        = string
-  description = "GKE cluster zone or region (e.g. europe-north2 or europe-north2-a)"
-  default     = "europe-north2"
+  description = "GCS prefix of gke Terraform state — used to read cluster_name and cluster_location via terraform_remote_state"
+  default     = "gke"
 }
 
 variable "gcp_project_id" {

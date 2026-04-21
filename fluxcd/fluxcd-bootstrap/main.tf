@@ -8,19 +8,31 @@ provider "google" {
 }
 
 # ===========================================================================
+# GKE remote state — source of cluster_name and cluster_location
+# ===========================================================================
+
+data "terraform_remote_state" "gke" {
+  backend = "gcs"
+  config = {
+    bucket = var.state_bucket
+    prefix = var.gke_state_prefix
+  }
+}
+
+# ===========================================================================
 # GKE cluster credentials
 # ===========================================================================
 
 data "google_client_config" "default" {}
 
 data "google_container_cluster" "gke" {
-  name     = var.gke_cluster_name
-  location = var.gke_location
+  name     = data.terraform_remote_state.gke.outputs.cluster_name
+  location = data.terraform_remote_state.gke.outputs.cluster_location
   project  = var.gcp_project_id
 }
 
 locals {
-  gke_host = "https://${data.google_container_cluster.gke.endpoint}"
+  gke_host  = "https://${data.google_container_cluster.gke.endpoint}"
   gke_token = data.google_client_config.default.access_token
   gke_ca    = base64decode(data.google_container_cluster.gke.master_auth[0].cluster_ca_certificate)
 }
@@ -83,8 +95,9 @@ provider "flux" {
 # fluxcd/clusters/{cluster_name}. Commits gotk-components.yaml and
 # gotk-sync.yaml into fluxcd/clusters/{cluster_name}/flux-system/.
 #
-# depends_on ensures SA files with correct GSA emails are in git before
-# Flux performs its first sync.
+# ВАЖНО: перед этим apply serviceaccount.yaml файлы с WI аннотациями
+# (GSA emails из scalr-admin outputs) должны быть закоммичены в git.
+# Terraform это не проверяет — ручной шаг.
 # ===========================================================================
 
 resource "flux_bootstrap_git" "this" {

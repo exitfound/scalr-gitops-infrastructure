@@ -35,8 +35,8 @@ flux_bootstrap_git (Terraform, один раз)
 fluxcd/
 ├── fluxcd-bootstrap/              # Terraform root module — запускается один раз на кластер
 │   ├── versions.tf                # GCS backend + providers: flux ~>1.8, kubernetes ~>3.1, google ~>6.0
-│   ├── variables.tf               # cluster_name, gke_cluster_name, flux_version, …
-│   ├── main.tf                    # GKE creds, scalr-admin remote state, flux_bootstrap_git
+│   ├── variables.tf               # cluster_name, gcp_project_id, flux_version, …
+│   ├── main.tf                    # GKE + scalr-admin remote state, GKE creds, flux_bootstrap_git
 │   ├── github.tf                  # комментарий (GitHub provider удалён)
 │   ├── outputs.tf                 # flux_version_installed, eso_gsa_email, scalr_agent_gsa_emails
 │   ├── envs/

@@ -106,12 +106,36 @@ terraform apply
 
 ---
 
-## Применить scalr-admin
+## Аутентификация в Scalr
+
+Есть два способа. Второй предпочтительнее — токен хранится локально и не нужно экспортировать вручную при каждом запуске.
+
+### Способ 1 — разовый экспорт (не рекомендуется)
 
 ```bash
 export SCALR_TOKEN=$(gcloud secrets versions access latest \
   --secret=scalr-api-token --project=$PROJECT)
+```
 
+Токен живёт только в текущей shell-сессии. При каждом новом терминале нужно повторять.
+
+### Способ 2 — terraform login (рекомендуется)
+
+```bash
+terraform login kitezh.scalr.io
+```
+
+Откроется браузер → войти в Scalr (через Google SSO или логин/пароль) → создать токен на открывшейся странице → скопировать и вставить в терминал.
+
+Токен сохраняется в `~/.terraform.d/credentials.tfrc.json` и Terraform/Scalr provider читает его автоматически при каждом запуске. Повторять не нужно — только при истечении токена.
+
+> **Для других пользователей:** каждый выполняет `terraform login kitezh.scalr.io` со своим аккаунтом. Что им доступно — определяется ролью в Scalr (account / environment / workspace уровень). Рядовые разработчики взаимодействуют через git push и Scalr UI — `scalr-admin` локально запускает только infra owner.
+
+---
+
+## Применить scalr-admin
+
+```bash
 cd scalr-admin/
 terraform init
 terraform apply

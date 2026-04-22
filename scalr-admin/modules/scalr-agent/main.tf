@@ -38,6 +38,14 @@ resource "google_secret_manager_secret_iam_member" "eso_read_token" {
   member    = "serviceAccount:${var.eso_gsa_email}"
 }
 
+resource "google_project_iam_member" "scalr_agent_project_roles" {
+  for_each = toset(var.project_roles)
+
+  project = var.gcp_project_id
+  role    = each.value
+  member  = "serviceAccount:${google_service_account.scalr_agent_gsa.email}"
+}
+
 # One Scalr agent pool per project. Workspaces are assigned to their
 # project's agent pool so runs execute on the correct agent pod.
 resource "scalr_agent_pool" "this" {

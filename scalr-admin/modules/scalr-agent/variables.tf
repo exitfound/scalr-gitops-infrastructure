@@ -63,3 +63,9 @@ variable "agent_pool_token_secret_name" {
   default     = "scalr-agent-pool-token"
 }
 
+variable "project_roles" {
+  type        = list(string)
+  description = "IAM roles granted to the agent GSA at project level in gcp_project_id. Use for agents that need to create/manage GCP resources (e.g. roles/storage.admin)."
+  default     = []
+}
+

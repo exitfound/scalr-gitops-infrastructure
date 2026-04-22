@@ -12,6 +12,10 @@ module "agent_main" {
   agent_pool_vcs_enabled       = false
   agent_pool_token_secret_name = "scalr-agent-pool-token"
   eso_gsa_email                = module.eso.gsa_email
+
+  project_roles = [
+    "roles/storage.admin",
+  ]
 }
 
 

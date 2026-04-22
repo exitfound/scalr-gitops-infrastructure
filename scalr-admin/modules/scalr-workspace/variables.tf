@@ -36,6 +36,12 @@ variable "auto_apply" {
   default     = false
 }
 
+variable "remote_backend" {
+  type        = bool
+  description = "If true, Scalr manages state storage internally. If false, Terraform uses the native backend from code (e.g. GCS). Disabling also removes Scalr state locking and CLI-driven runs."
+  default     = true
+}
+
 variable "agent_pool_id" {
   type        = string
   description = "Agent pool ID for remote execution. Required when execution_mode = remote"

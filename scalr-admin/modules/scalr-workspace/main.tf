@@ -4,6 +4,7 @@ resource "scalr_workspace" "this" {
   terraform_version = var.terraform_version
   execution_mode    = var.execution_mode
   auto_apply        = var.auto_apply
+  remote_backend    = var.remote_backend
   agent_pool_id     = var.agent_pool_id
   working_directory = var.working_directory
   vcs_provider_id   = var.vcs_provider_id

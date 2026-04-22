@@ -16,6 +16,7 @@ module "ws_gcp_sample_project" {
   execution_mode      = "remote"
   terraform_version   = "1.5.7"
   auto_apply          = false
+  remote_backend      = false
 
   agent_pool_id       = module.agent_main.agent_pool_id
 

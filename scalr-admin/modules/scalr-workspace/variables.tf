@@ -1,3 +1,8 @@
+variable "account_id" {
+  type        = string
+  description = "Scalr account ID — required for scalr_variable resources when running locally"
+}
+
 variable "name" {
   type        = string
   description = "Workspace name"

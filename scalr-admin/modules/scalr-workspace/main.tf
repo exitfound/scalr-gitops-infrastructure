@@ -32,6 +32,7 @@ resource "scalr_workspace" "this" {
 resource "scalr_variable" "shell" {
   for_each = { for v in var.shell_variables : v.key => v }
 
+  account_id   = var.account_id
   key          = each.value.key
   value        = each.value.value
   category     = "shell"
@@ -42,6 +43,7 @@ resource "scalr_variable" "shell" {
 resource "scalr_variable" "terraform" {
   for_each = { for v in var.terraform_variables : v.key => v }
 
+  account_id   = var.account_id
   key          = each.value.key
   value        = each.value.value
   category     = "terraform"

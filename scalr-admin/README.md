@@ -35,10 +35,10 @@ GKE кластер (infra project: your-gcp-project-id)
 scalr-admin/
 ├── modules/
 │   ├── eso/                  # ESO GSA + WI binding (shared, один на кластер)
-│   ├── scalr-agent/          # Per-agent: GSA + WI + GCS IAM + SM IAM + agent pool
+│   ├── scalr-agent/          # Per-agent: GSA + WI + GCS IAM + SM IAM + agent pool + project_roles
 │   ├── scalr-environment/    # scalr_environment resource
 │   ├── scalr-vcs-provider/   # scalr_vcs_provider resource
-│   └── scalr-workspace/      # scalr_workspace + scalr_variable resources
+│   └── scalr-workspace/      # scalr_workspace + scalr_variable (требует account_id)
 ├── versions.tf               # GCS backend, required_providers, provider configs
 ├── variables.tf              # gcp_project_id, gcp_region, eso_namespace, eso_ksa
 ├── terraform.tfvars          # gcp_project_id + gcp_region
@@ -47,7 +47,7 @@ scalr-admin/
 ├── agents.tf                 # Явные module "agent_*" блоки
 ├── environment.tf            # module "env_main"
 ├── vcs.tf                    # module "vcs_github"
-├── workspaces.tf             # module "ws_admin" (execution_mode=local)
+├── workspaces.tf             # module "ws_admin" (local) + VCS workspaces внешних проектов
 └── outputs.tf                # agents map + eso_gsa_email + Scalr resource IDs
 ```
 
@@ -55,6 +55,7 @@ scalr-admin/
 - `terraform.tfvars` — только `gcp_project_id` и `gcp_region`. Все остальные значения (Scalr account ID, имена агентов, bucket) захардкожены в вызовах модулей.
 - `gcp.tf` — только вызов `module "eso"`. Ресурсы агентов инкапсулированы в `modules/scalr-agent/`.
 - `agents.tf` — явные `module "agent_*"` блоки. Добавление агента = копирование блока.
+- `workspaces.tf` — содержит как `ws_admin` (local, CLI-only), так и VCS workspaces внешних проектов (remote, запускаются агентом).
 - Все модули используют `versions.tf` (не `provider.tf`) для `required_providers`.
 
 ---
@@ -164,10 +165,16 @@ module "agent_prod" {
   agent_pool_vcs_enabled       = false
   agent_pool_token_secret_name = "scalr-agent-pool-token-prod"
   eso_gsa_email                = module.eso.gsa_email
+
+  # Роли которые агент получает в gcp_project_id.
+  # Пустой список (default) — только доступ к state bucket.
+  project_roles = []
 }
 ```
 
-> Важно: `scalr_agent_namespace` и `scalr_agent_ksa` должны быть уникальны для каждого агента во избежание конфликта ServiceAccount.
+> Важно: `scalr_agent_namespace` и `scalr_agent_ksa` должны быть уникальны для каждого агента — они формируют WI binding principal `PROJECT.svc.id.goog[namespace/ksa]`.
+
+> Важно: `agent_pool_vcs_enabled = false` — это Enterprise-only фича для доступа к private VCS за файрволом, не влияет на работу VCS-driven workspaces. Оставлять `false` для стандартных публичных репозиториев.
 
 **3. Добавить в `outputs.tf`** блок `prod` в `output "agents"` и `output "scalr_agent_pool_ids"`.
 
@@ -205,38 +212,101 @@ printf %s "eyJ..." | gcloud secrets versions add scalr-agent-pool-token-prod \
 
 ---
 
-## Добавление нового workspace
+## Подключение внешнего проекта через VCS workspace
+
+Scalr VCS workspace связывает GitHub-репозиторий с агентом. При открытии PR — speculative plan (результат постится как GitHub Check). При мерже в основную ветку — полный plan + apply.
+
+### Настроить GCS backend в подключаемом проекте
 
 ```hcl
-# workspaces.tf
-module "ws_my_project" {
-  source              = "./modules/scalr-workspace"
-  name                = "my-project"
-  environment_id      = module.env_dev.environment_id
-  execution_mode      = "remote"
-  terraform_version   = "1.5.7"
-  auto_apply          = false
-  agent_pool_id       = module.agent_main.agent_pool_id
-  vcs_provider_id     = module.vcs_github.vcs_provider_id
-  vcs_repo_identifier = "your-github-username/your-repo"
-  vcs_branch          = "main"
-  working_directory   = "terraform/"
-  trigger_prefixes    = ["terraform/"]
-}
-```
-
-Workspace с GCS state backend:
-```hcl
-# В репозитории workspace, versions.tf:
+# versions.tf подключаемого проекта
 terraform {
   backend "gcs" {
-    bucket = "your-state-bucket"
+    bucket = "scalr-infrastructure-bucket"  # общий bucket, уникальный prefix
     prefix = "my-project"
   }
 }
 ```
 
-Агент аутентифицируется в GCS через Workload Identity — дополнительной конфигурации не нужно.
+Credentials не указываются — агент аутентифицируется через Workload Identity. Токен предоставляет GKE metadata server автоматически (`allowMetadataService: true` в Helm values агента).
+
+### Добавить workspace в `workspaces.tf`
+
+```hcl
+module "ws_my_project" {
+  source              = "./modules/scalr-workspace"
+  account_id          = "acc-v0p7ctljql63n2eg4"    # обязателен при локальном запуске
+  name                = "my-project"
+  environment_id      = module.env_main.environment_id
+  execution_mode      = "remote"
+  terraform_version   = "1.5.7"
+  auto_apply          = false
+
+  agent_pool_id       = module.agent_main.agent_pool_id
+
+  vcs_provider_id     = module.vcs_github.vcs_provider_id
+  vcs_repo_identifier = "your-github-username/your-repo"
+  vcs_branch          = "main"
+  working_directory   = "terraform"         # должен совпасть с trigger_prefixes
+  trigger_prefixes    = ["terraform"]       # Scalr валидирует соответствие
+
+  terraform_variables = [
+    { key = "gcp_project_id", value = "your-gcp-project", sensitive = false },
+  ]
+}
+```
+
+### Применить scalr-admin
+
+```bash
+export SCALR_TOKEN=$(gcloud secrets versions access latest --secret=scalr-api-token --project=$PROJECT)
+cd scalr-admin/
+terraform apply
+```
+
+После apply workspace появится в Scalr UI. Scalr автоматически зарегистрирует webhook на репозиторий через VCS provider.
+
+---
+
+## Почему Scalr не читает terraform.tfvars
+
+В remote режиме Scalr загружает только `.tf` файлы и инжектирует переменные через собственный механизм. Это намеренное поведение — позволяет централизованно управлять переменными и обеспечивает аудит изменений.
+
+Источники переменных в порядке приоритета:
+
+| Источник | Как задать | Когда использовать |
+|---|---|---|
+| Workspace variables | `terraform_variables` в `workspaces.tf` | Специфичные для workspace: project_id, bucket name |
+| Environment variables | `scalr_variable` с `environment_id` (отдельный ресурс) | Общие для всех workspace в environment |
+| Defaults в `variables.tf` | `default = "..."` в коде проекта | Значения которые меняются через PR |
+| Scalr UI (вручную) | Variables → Add variable | Разовые изменения, чувствительные секреты |
+
+`terraform.tfvars` в репозитории можно оставить для локального запуска через CLI — Scalr его просто игнорирует.
+
+---
+
+## Почему account_id обязателен в scalr-workspace модуле
+
+`scalr_variable` ресурс требует явного `account_id` при локальном запуске — Scalr provider не может вывести его автоматически без активной remote сессии. `scalr_workspace` этого не требует (использует `environment_id` для привязки). Обойти через `SCALR_ACCOUNT_ID` env variable как альтернатива явному указанию в модуле.
+
+---
+
+## project_roles — GCP права для агента
+
+По умолчанию агент может только читать и писать в GCS state bucket. Чтобы агент мог создавать GCP ресурсы (bucket, pub/sub, VM и т.д.), нужно выдать ему права через `project_roles`:
+
+```hcl
+# agents.tf
+module "agent_main" {
+  ...
+  project_roles = [
+    "roles/storage.admin",    # создание GCS bucket
+    "roles/pubsub.admin",     # если нужен Pub/Sub
+  ]
+}
+```
+
+Под капотом модуль создаёт `google_project_iam_member` для каждой роли в `gcp_project_id` агента. При пустом списке (default) никаких project-level биндингов не создаётся — backward-compatible изменение.
 
 ---
 

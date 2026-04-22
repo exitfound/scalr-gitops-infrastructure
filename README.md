@@ -52,19 +52,25 @@ scalr-gitops-infrastructure/
 ├── scalr-admin/                        # Terraform bootstrap: GCP + Scalr ресурсы (CLI-only)
 │   ├── modules/
 │   │   ├── eso/                        # ESO GSA + WI binding (shared, один на кластер)
-│   │   ├── scalr-agent/               # Per-agent: GSA + WI + GCS IAM + SM IAM + agent pool
+│   │   ├── scalr-agent/               # Per-agent: GSA + WI + GCS IAM + SM IAM + agent pool + project_roles
 │   │   ├── scalr-environment/         # scalr_environment resource
 │   │   ├── scalr-vcs-provider/        # scalr_vcs_provider resource
-│   │   └── scalr-workspace/           # scalr_workspace + scalr_variable resources
+│   │   └── scalr-workspace/           # scalr_workspace + scalr_variable resources (требует account_id)
 │   ├── gcp.tf                         # module "eso"
 │   ├── agents.tf                      # module "agent_*" блоки
 │   ├── environment.tf                 # module "env_main"
 │   ├── vcs.tf                         # module "vcs_github"
-│   ├── workspaces.tf                  # module "ws_admin" (CLI, local)
+│   ├── workspaces.tf                  # module "ws_admin" (CLI, local) + VCS workspaces внешних проектов
 │   ├── outputs.tf                     # agents map + GSA emails + Scalr IDs
 │   ├── versions.tf                    # GCS backend + providers
 │   ├── variables.tf                   # gcp_project_id, gcp_region
 │   └── terraform.tfvars               # gcp_project_id + gcp_region
+├── gcp-sample-project/                 # Пример внешнего проекта — управляется Scalr VCS workspace
+│   ├── versions.tf                     # GCS backend (scalr-infrastructure-bucket/gcp-sample-project)
+│   ├── variables.tf                    # gcp_project_id, gcp_region, bucket_name
+│   ├── terraform.tfvars                # значения для локального запуска (Scalr их не читает)
+│   ├── main.tf                         # google_storage_bucket — пример GCP ресурса
+│   └── outputs.tf                      # bucket_name, bucket_url
 └── fluxcd/
     ├── fluxcd-bootstrap/              # Terraform bootstrap: Flux на кластере (CLI-only)
     │   ├── main.tf                    # GKE + scalr-admin remote state, GKE creds, Flux bootstrap
@@ -399,30 +405,97 @@ terraform plan
 terraform apply
 ```
 
-### Добавление нового Terraform workspace
+### Подключение нового проекта через Scalr VCS workspace
 
-В `scalr-admin/workspaces.tf`:
+Scalr VCS workspace подключает GitHub-репозиторий к агенту: при открытии PR Scalr запускает speculative plan и постит результат как GitHub Check, при мерже — полный plan + apply.
+
+**Шаг 1 — Настроить GCS backend в `versions.tf` подключаемого проекта:**
+
+```hcl
+terraform {
+  backend "gcs" {
+    bucket = "scalr-infrastructure-bucket"  # тот же общий bucket, разный prefix
+    prefix = "my-project"
+  }
+}
+```
+
+Credentials не нужны — агент аутентифицируется через Workload Identity автоматически.
+
+**Шаг 2 — Добавить workspace в `scalr-admin/workspaces.tf`:**
 
 ```hcl
 module "ws_my_project" {
   source              = "./modules/scalr-workspace"
+  account_id          = "acc-v0p7ctljql63n2eg4"
   name                = "my-project"
   environment_id      = module.env_main.environment_id
   execution_mode      = "remote"
   terraform_version   = "1.5.7"
   auto_apply          = false
+
   agent_pool_id       = module.agent_main.agent_pool_id
+
   vcs_provider_id     = module.vcs_github.vcs_provider_id
   vcs_repo_identifier = "your-github-username/your-repo"
   vcs_branch          = "main"
-  working_directory   = "terraform/"
-  trigger_prefixes    = ["terraform/"]
+  working_directory   = "terraform"          # путь внутри репо или null для корня
+  trigger_prefixes    = ["terraform"]        # должен совпадать с working_directory
+
+  terraform_variables = [
+    { key = "gcp_project_id", value = "your-gcp-project", sensitive = false },
+  ]
 }
 ```
 
-```bash
-terraform apply  # в scalr-admin/
+> **Важно:** `trigger_prefixes` должен точно совпадать со значением `working_directory` — Scalr проверяет это при создании workspace.
+
+> **Важно:** `account_id` обязателен — Scalr provider не может вывести его автоматически при локальном запуске.
+
+**Шаг 3 — Если агент должен создавать GCP ресурсы, добавить роли в `agents.tf`:**
+
+```hcl
+module "agent_main" {
+  ...
+  project_roles = [
+    "roles/storage.admin",      # уже есть
+    "roles/pubsub.admin",       # добавить при необходимости
+  ]
+}
 ```
+
+**Шаг 4 — Применить scalr-admin (CLI):**
+
+```bash
+export SCALR_TOKEN=$(gcloud secrets versions access latest --secret=scalr-api-token --project=$PROJECT)
+cd scalr-admin/
+terraform apply
+```
+
+**Шаг 5 — Запушить код проекта:**
+
+```bash
+git push origin main
+```
+
+Scalr зарегистрирует webhook на репозиторий. Последующие PR с изменениями в `trigger_prefixes` пути будут автоматически вызывать speculative plan.
+
+---
+
+### Как Scalr получает переменные для workspace
+
+Scalr в remote режиме **не читает `terraform.tfvars`** из репозитория — это намеренное поведение, позволяющее централизованно управлять переменными через Scalr API.
+
+Доступные источники переменных (в порядке приоритета):
+
+| Источник | Как задать | Когда использовать |
+|---|---|---|
+| Workspace variables | `terraform_variables` в `workspaces.tf` → scalr-admin apply | Переменные специфичные для workspace (project_id) |
+| Environment variables | `scalr_variable` с `environment_id` → scalr-admin apply | Одно значение для всех workspace в environment |
+| Defaults в `variables.tf` | `default = "..."` в коде проекта | Значения которые меняются через PR (bucket_name, имена ресурсов) |
+| Scalr UI | вручную в интерфейсе | Разовые изменения, секреты которые нельзя в код |
+
+Secrets (API ключи, токены) всегда передавать как `sensitive = true` workspace variables — Scalr шифрует их в хранилище и не показывает в логах.
 
 ### Добавление нового компонента через GitOps
 

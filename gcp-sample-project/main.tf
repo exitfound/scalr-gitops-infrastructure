@@ -11,7 +11,8 @@ resource "google_storage_bucket" "sample" {
   }
 
   labels = {
-    managed-by = "scalr"
-    project    = "gcp-sample-project"
+    managed-by  = "scalr"
+    project     = "gcp-sample-project"
+    environment = "dev"
   }
 }
